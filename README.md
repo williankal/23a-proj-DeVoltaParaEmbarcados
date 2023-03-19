@@ -50,4 +50,4 @@ Randomizar fila: Push button amarelo
 
 ### Design (2 pts)
 
-  <img src="design" width="350" title="hover text">
+  <img src="design.png" width="350" title="hover text">
