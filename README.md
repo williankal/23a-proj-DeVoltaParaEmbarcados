@@ -35,11 +35,11 @@ O usuário durante uma festa em sua casa, esquece que seu spotify é free e esco
 
 ### Comandos/ Feedbacks (2 pts)
 
-- Pular vídeo -> feedback: feedback sonoro
+- Pular vídeo -> feedback: pisca led
 - Controle de volume -> feedback: por ser um sensor slider, o próprio sensor trará um feedback ao usuário representando um volume de 0 a 100
-- Play/Stop vídeo -> feedback: pisca um led1 mostrando que deu play/stop
-- Full Screen -> feedback: led2 acesso mostrand que trocou
-- Randomizar fila -> feedback: led3 acesso mostrando que a opção está ativada
+- Play/Stop vídeo -> feedback: pisca led
+- Full Screen -> feedback: pisca led
+- Randomizar fila -> feedback: pisca led
 
 ## In/OUT (3 pts)
 
