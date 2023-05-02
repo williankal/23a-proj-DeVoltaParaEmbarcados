@@ -43,11 +43,11 @@ O usuário durante uma festa em sua casa, esquece que seu spotify é free e esco
 
 ## In/OUT (3 pts)
 
-- Pular vídeo: Push button verde
+- Pular para vídeo seguinte: Push button verde
 - Play/Stop vídeo: Push button vermelho
 - Full Screen: push button azul
 - Volume da música: slider
-- Randomizar fila: Push button amarelo
+- Pular para vídeo anterior: Push button amarelo
 
 ### Design (2 pts)
 

@@ -1,9 +1,6 @@
-/************************************************************************
-* 5 semestre - Eng. da Computao - Insper
-*
-* 2021 - Exemplo com HC05 com RTOS
-*
-*/
+/************************************************************************/
+/* 2023.1 - 5 semestre - Eng. da Computao - Insper						*/
+/************************************************************************/
 
 #include <asf.h>
 #include "conf_board.h"
@@ -13,23 +10,71 @@
 /* defines                                                              */
 /************************************************************************/
 
-// LEDs
+// LED PLACA
 #define LED_PIO      PIOC
 #define LED_PIO_ID   ID_PIOC
 #define LED_IDX      8
 #define LED_IDX_MASK (1 << LED_IDX)
 
-// Botão
+// LED PROTOBOARD GERAL
+#define LED_GERAL_PIO      PIOC
+#define LED_GERAL_PIO_ID   ID_PIOC
+#define LED_GERAL_IDX      19
+#define LED_GERAL_IDX_MASK (1 << LED_GERAL_IDX)
+
+// LED PROTOBOARD HANDSHAKE
+#define LED_HS_PIO      PIOD
+#define LED_HS_PIO_ID   ID_PIOD
+#define LED_HS_IDX      26
+#define LED_HS_IDX_MASK (1 << LED_HS_IDX)
+
+// BOTAO PLACA
 #define BUT_PIO      PIOA
 #define BUT_PIO_ID   ID_PIOA
 #define BUT_IDX      11
 #define BUT_IDX_MASK (1 << BUT_IDX)
 
+// BOTAO VERDE
+#define BUT_VERDE_PIO          PIOA 
+#define BUT_VERDE_PIO_ID       ID_PIOA 
+#define BUT_VERDE_PIO_IDX      24 
+#define BUT_VERDE_PIO_IDX_MASK (1 << BUT_VERDE_PIO_IDX) 
+
+// BOTAO AMARELO
+#define BUT_AMARELO_PIO          PIOA 
+#define BUT_AMARELO_PIO_ID       ID_PIOA 
+#define BUT_AMARELO_PIO_IDX      3 
+#define BUT_AMARELO_PIO_IDX_MASK (1 << BUT_AMARELO_PIO_IDX) 
+
+// BOTAO VERMELHO
+#define BUT_VERMELHO_PIO          PIOA 
+#define BUT_VERMELHO_PIO_ID       ID_PIOA 
+#define BUT_VERMELHO_PIO_IDX      2 
+#define BUT_VERMELHO_PIO_IDX_MASK (1 << BUT_VERMELHO_PIO_IDX) 
+
+// BOTAO AZUL
+#define BUT_AZUL_PIO          PIOA 
+#define BUT_AZUL_PIO_ID       ID_PIOA 
+#define BUT_AZUL_PIO_IDX      4 
+#define BUT_AZUL_PIO_IDX_MASK (1 << BUT_AZUL_PIO_IDX) 
+
+// AFEC POTENCIOMETRO
+#define AFEC_POT0 AFEC0
+#define AFEC_POT0_ID ID_AFEC0
+#define AFEC_POT0_CHANNEL 8 // Canal do pino PA19
+
 // usart (bluetooth ou serial)
 // Descomente para enviar dados
 // pela serial debug
 
-#define DEBUG_SERIAL
+//#define DEBUG_SERIAL	
+
+
+// BLUETOOTH
+	// RXD (AZUL) => PB1 
+	// TXD (VERDE) => PB0
+	// GND => GND
+	// VCC => 5V0
 
 #ifdef DEBUG_SERIAL
 #define USART_COM USART1
@@ -46,9 +91,30 @@
 #define TASK_BLUETOOTH_STACK_SIZE            (4096/sizeof(portSTACK_TYPE))
 #define TASK_BLUETOOTH_STACK_PRIORITY        (tskIDLE_PRIORITY)
 
+#define TASK_ADC_STACK_SIZE (1024 * 10 / sizeof(portSTACK_TYPE))
+#define TASK_ADC_STACK_PRIORITY (tskIDLE_PRIORITY)
+
+#define TASK_HANDSHAKE_STACK_SIZE            (4096/sizeof(portSTACK_TYPE))
+#define TASK_HANDSHAKE_STACK_PRIORITY        (tskIDLE_PRIORITY)
+
 /************************************************************************/
 /* prototypes                                                           */
 /************************************************************************/
+QueueHandle_t xQueueButton;
+QueueHandle_t xQueueADC;
+TimerHandle_t xTimer;
+
+TaskHandle_t xTaskBluetoothHandle;
+TaskHandle_t xTaskHandshakeHandle;
+
+typedef struct {
+  uint value;
+} adcData;
+
+typedef struct {
+	char tipo; 
+	int value;
+} pack;
 
 extern void vApplicationStackOverflowHook(xTaskHandle *pxTask,
 signed char *pcTaskName);
@@ -56,6 +122,9 @@ extern void vApplicationIdleHook(void);
 extern void vApplicationTickHook(void);
 extern void vApplicationMallocFailedHook(void);
 extern void xPortSysTickHandler(void);
+static void config_AFEC_pot(Afec *afec, uint32_t afec_id, uint32_t afec_channel,
+                            afec_callback_t callback);
+void task_bluetooth(void);
 
 /************************************************************************/
 /* constants                                                            */
@@ -101,7 +170,42 @@ extern void vApplicationMallocFailedHook(void) {
 
 /************************************************************************/
 /* handlers / callbacks                                                 */
-/************************************************************************/
+ /************************************************************************/
+ void but_amarelo_callback(void){
+	pack p;
+	p.tipo = 'b';
+	p.value = 1;
+	printf("APERTOU BOTAO AMARELO\n");
+	xQueueSendFromISR(xQueueButton, &p, 0);
+}
+void but_verde_callback(void){
+	pack p;
+	p.tipo = 'b';
+	p.value = 2;
+	printf("APERTOU BOTAO VERDE\n");
+	xQueueSendFromISR(xQueueButton, &p, 0);
+}
+void but_vermelho_callback(void){
+	pack p;
+	p.tipo = 'b';
+	p.value = 3;
+	printf("APERTOU BOTAO VERMELHO\n");
+	xQueueSendFromISR(xQueueButton, &p, 0);
+}
+void but_azul_callback(void){
+	pack p;
+	p.tipo = 'b';
+	p.value = 4;
+	printf("APERTOU BOTAO AZUL\n");
+	xQueueSendFromISR(xQueueButton, &p, 0);
+}
+static void AFEC_pot0_callback(void) {
+    adcData adc;
+    adc.value = afec_channel_get_value(AFEC_POT0, AFEC_POT0_CHANNEL);
+    BaseType_t xHigherPriorityTaskWoken = pdTRUE;
+	printf("AFEC: %d\n", adc.value);
+    xQueueSendFromISR(xQueueADC, &adc, &xHigherPriorityTaskWoken);
+}
 
 /************************************************************************/
 /* funcoes                                                              */
@@ -110,12 +214,116 @@ extern void vApplicationMallocFailedHook(void) {
 void io_init(void) {
 
 	// Ativa PIOs
-	pmc_enable_periph_clk(LED_PIO_ID);
-	pmc_enable_periph_clk(BUT_PIO_ID);
+	pmc_enable_periph_clk(ID_PIOA);
+	pmc_enable_periph_clk(ID_PIOC);
+	pmc_enable_periph_clk(ID_PIOD);
+	pmc_enable_periph_clk(ID_PIOB);
 
-	// Configura Pinos
-	pio_configure(LED_PIO, PIO_OUTPUT_0, LED_IDX_MASK, PIO_DEFAULT | PIO_DEBOUNCE);
+	// CONFIGURA LED GERAL
+	pmc_enable_periph_clk(LED_GERAL_PIO_ID);
+	pio_set_output(LED_GERAL_PIO, LED_GERAL_IDX_MASK, 1, 0, 0);
+
+	// CONFIGURA LED HANDSHAKE
+	pmc_enable_periph_clk(LED_HS_PIO_ID);
+	pio_set_output(LED_HS_PIO, LED_HS_IDX_MASK, 1, 0, 0);
+	
+	// CONFIGURA LED E BOTAO DA PLACA
+	pio_configure(LED_PIO, PIO_OUTPUT_1, LED_IDX_MASK, PIO_DEFAULT | PIO_DEBOUNCE);
 	pio_configure(BUT_PIO, PIO_INPUT, BUT_IDX_MASK, PIO_PULLUP);
+
+	// INICIO DA CONFIGURACAO DOS BOTOES COLORIDOS
+	pio_configure(BUT_AMARELO_PIO, PIO_INPUT, BUT_AMARELO_PIO_IDX_MASK, PIO_PULLUP| PIO_DEBOUNCE);
+	pio_set_debounce_filter(BUT_AMARELO_PIO, BUT_AMARELO_PIO_IDX_MASK, 60);
+
+	pio_configure(BUT_AZUL_PIO, PIO_INPUT, BUT_AZUL_PIO_IDX_MASK, PIO_PULLUP| PIO_DEBOUNCE);
+	pio_set_debounce_filter(BUT_AZUL_PIO, BUT_AZUL_PIO_IDX_MASK, 60);
+
+	pio_configure(BUT_VERMELHO_PIO, PIO_INPUT, BUT_VERMELHO_PIO_IDX_MASK, PIO_PULLUP| PIO_DEBOUNCE);
+	pio_set_debounce_filter(BUT_VERMELHO_PIO, BUT_VERMELHO_PIO_IDX_MASK, 60);
+
+	pio_configure(BUT_VERDE_PIO, PIO_INPUT, BUT_VERDE_PIO_IDX_MASK, PIO_PULLUP| PIO_DEBOUNCE);
+	pio_set_debounce_filter(BUT_VERDE_PIO, BUT_VERDE_PIO_IDX_MASK, 60);
+
+	pio_handler_set(BUT_AMARELO_PIO, BUT_AMARELO_PIO_ID, BUT_AMARELO_PIO_IDX_MASK, PIO_IT_FALL_EDGE,
+	but_amarelo_callback);
+	
+	pio_handler_set(BUT_VERDE_PIO, BUT_VERDE_PIO_ID, BUT_VERDE_PIO_IDX_MASK, PIO_IT_FALL_EDGE,
+	but_verde_callback);
+	
+	pio_handler_set(BUT_AZUL_PIO, BUT_AZUL_PIO_ID, BUT_AZUL_PIO_IDX_MASK, PIO_IT_FALL_EDGE,
+		but_azul_callback);
+		
+	pio_handler_set(BUT_VERMELHO_PIO, BUT_VERMELHO_PIO_ID, BUT_VERMELHO_PIO_IDX_MASK, PIO_IT_FALL_EDGE,
+	but_vermelho_callback);
+	   
+	pio_enable_interrupt(BUT_AMARELO_PIO, BUT_AMARELO_PIO_IDX_MASK);
+	pio_enable_interrupt(BUT_VERDE_PIO, BUT_VERDE_PIO_IDX_MASK);
+	pio_enable_interrupt(BUT_AZUL_PIO, BUT_AZUL_PIO_IDX_MASK);
+	pio_enable_interrupt(BUT_VERMELHO_PIO, BUT_VERMELHO_PIO_IDX_MASK);
+	
+	pio_get_interrupt_status(BUT_AMARELO_PIO);
+	pio_get_interrupt_status(BUT_VERDE_PIO);
+	pio_get_interrupt_status(BUT_AZUL_PIO);
+	pio_get_interrupt_status(BUT_VERMELHO_PIO);
+
+	NVIC_EnableIRQ(BUT_AMARELO_PIO_ID);
+	NVIC_SetPriority(BUT_AMARELO_PIO_ID, 4);
+
+	NVIC_EnableIRQ(BUT_VERDE_PIO_ID);
+	NVIC_SetPriority(BUT_VERDE_PIO_ID, 4);
+
+	NVIC_EnableIRQ(BUT_AZUL_PIO_ID);
+	NVIC_SetPriority(BUT_AZUL_PIO_ID, 4);
+	
+	NVIC_EnableIRQ(BUT_VERMELHO_PIO_ID);
+	NVIC_SetPriority(BUT_VERMELHO_PIO_ID, 4);
+	// FIM DA CONFIGURACAO DOS BOTOES COLORIDOS
+
+}
+
+static void config_AFEC_pot(Afec *afec, uint32_t afec_id, uint32_t afec_channel,
+                            afec_callback_t callback) {
+    /*************************************
+     * Ativa e configura AFEC
+     *************************************/
+    /* Ativa AFEC - 0 */
+    afec_enable(afec);
+
+    /* struct de configuracao do AFEC */
+    struct afec_config afec_cfg;
+
+    /* Carrega parametros padrao */
+    afec_get_config_defaults(&afec_cfg);
+
+    /* Configura AFEC */
+    afec_init(afec, &afec_cfg);
+
+    /* Configura trigger por software */
+    afec_set_trigger(afec, AFEC_TRIG_SW);
+
+    /*** Configuracao específica do canal AFEC ***/
+    struct afec_ch_config afec_ch_cfg;
+    afec_ch_get_config_defaults(&afec_ch_cfg);
+    afec_ch_cfg.gain = AFEC_GAINVALUE_0;
+    afec_ch_set_config(afec, afec_channel, &afec_ch_cfg);
+
+    /*
+    * Calibracao:
+    * Because the internal ADC offset is 0x200, it should cancel it and shift
+    down to 0.
+    */
+    afec_channel_set_analog_offset(afec, afec_channel, 0x200);
+
+    /***  Configura sensor de temperatura ***/
+    struct afec_temp_sensor_config afec_temp_sensor_cfg;
+
+    afec_temp_sensor_get_config_defaults(&afec_temp_sensor_cfg);
+    afec_temp_sensor_set_config(afec, &afec_temp_sensor_cfg);
+
+    /* configura IRQ */
+    afec_set_callback(afec, afec_channel, callback, 1);
+    NVIC_SetPriority(afec_id, 4);
+    NVIC_EnableIRQ(afec_id);
 }
 
 static void configure_console(void) {
@@ -201,7 +409,7 @@ int hc05_init(void) {
 	vTaskDelay( 500 / portTICK_PERIOD_MS);
 	usart_send_command(USART_COM, buffer_rx, 1000, "AT", 100);
 	vTaskDelay( 500 / portTICK_PERIOD_MS);
-	usart_send_command(USART_COM, buffer_rx, 1000, "AT+NAMEagoravai", 100);
+	usart_send_command(USART_COM, buffer_rx, 1000, "AT+NAMEYouol_Bluetooth", 100);
 	vTaskDelay( 500 / portTICK_PERIOD_MS);
 	usart_send_command(USART_COM, buffer_rx, 1000, "AT", 100);
 	vTaskDelay( 500 / portTICK_PERIOD_MS);
@@ -212,45 +420,125 @@ int hc05_init(void) {
 /* TASKS                                                                */
 /************************************************************************/
 
-void task_bluetooth(void) {
-	printf("Task Bluetooth started \n");
-	
-	printf("Inicializando HC05 \n");
-	config_usart0();
-	hc05_init();
+void vTimerCallback0(TimerHandle_t xTimer) {
+    /* Selecina canal e inicializa conversão */
+    afec_channel_enable(AFEC_POT0, AFEC_POT0_CHANNEL);
+    afec_start_software_conversion(AFEC_POT0);
+}
 
-	// configura LEDs e Botões
+static void task_adc(void *pvParameters) {
+
+    // configura ADC e TC para controlar a leitura
+    config_AFEC_pot(AFEC_POT0, AFEC_POT0_ID, AFEC_POT0_CHANNEL, AFEC_pot0_callback);
+
+    xTimer = xTimerCreate("Timer0", 100, pdTRUE, (void *)0, vTimerCallback0);
+    xTimerStart(xTimer, 0);
+
+    // variável para recever dados da fila
+    adcData adc;
+	pack tip;
+    while (1) {
+
+		// <TESTE LEDS //
+
+		// TESTE LEDS> //
+
+        if (xQueueReceive(xQueueADC, &(adc), 0)) {
+			tip.tipo = 'a';
+			tip.value = adc.value;
+			xQueueSend(xQueueButton, &tip, 0);
+        	// printf("AFEC: %d\n", adc.value);
+        }
+    }
+}
+
+void task_handshake(void){
 	io_init();
 
-	char button1 = '0';
+	config_usart0();
+	hc05_init();
+	
 	char eof = 'X';
+	char handshake;
+	pack hand;
+	hand.tipo = 'h';
+	hand.value = 0;
+	while (1) {
+		pio_set(LED_PIO, LED_IDX_MASK);
+		vTaskDelay(100 / portTICK_PERIOD_MS);
+		pio_clear(LED_PIO, LED_IDX_MASK);
+		vTaskDelay(100 / portTICK_PERIOD_MS);
 
-	// Task não deve retornar.
-	while(1) {
-		// atualiza valor do botão
-		if(pio_get(BUT_PIO, PIO_INPUT, BUT_IDX_MASK) == 0) {
-			button1 = '1';
-		} else {
-			button1 = '0';
+		if (usart_read(USART_COM, &handshake) == 0) {
+			if (handshake == 'h') {
+				pio_clear(LED_PIO, LED_IDX_MASK);
+				xTaskCreate(task_bluetooth, "BLT", TASK_BLUETOOTH_STACK_SIZE, NULL,	TASK_BLUETOOTH_STACK_PRIORITY, NULL);
+			}
 		}
 
-		// envia status botão
 		while(!usart_is_tx_ready(USART_COM)) {
 			vTaskDelay(10 / portTICK_PERIOD_MS);
 		}
-		usart_write(USART_COM, button1);
+		usart_write(USART_COM, hand.tipo);
+
 		
-		// envia fim de pacote
+		while(!usart_is_tx_ready(USART_COM)) {
+			vTaskDelay(10 / portTICK_PERIOD_MS);
+		}
+		usart_write(USART_COM, hand.value);
+
+		while(!usart_is_tx_ready(USART_COM)) {
+			vTaskDelay(10 / portTICK_PERIOD_MS);
+		}
+		usart_write(USART_COM, hand.value >> 8);
+
 		while(!usart_is_tx_ready(USART_COM)) {
 			vTaskDelay(10 / portTICK_PERIOD_MS);
 		}
 		usart_write(USART_COM, eof);
 
-		// dorme por 500 ms
-		vTaskDelay(500 / portTICK_PERIOD_MS);
-	}
+	}	
+
 }
 
+void task_bluetooth(void) {
+	printf("Task Bluetooth started \n");
+	
+	printf("Inicializando HC05 \n");
+	vTaskSuspend(xTaskHandshakeHandle);
+
+	char eof = 'X';
+ 	pack tip;
+	// Task não deve retornar.
+	while(1) {
+		// atualiza valor do botão
+			if (xQueueReceive(xQueueButton, &tip, 0)) {
+				printf("TIPO: %c Value: %D\n", tip.tipo, tip.value);
+			// envia status botão
+				while(!usart_is_tx_ready(USART_COM)) {
+					vTaskDelay(10 / portTICK_PERIOD_MS);
+				}
+				usart_write(USART_COM, tip.tipo);
+				
+				
+				while(!usart_is_tx_ready(USART_COM)) {
+					vTaskDelay(10 / portTICK_PERIOD_MS);
+				}
+				usart_write(USART_COM, tip.value);
+
+				while(!usart_is_tx_ready(USART_COM)) {
+					vTaskDelay(10 / portTICK_PERIOD_MS);
+				}
+				usart_write(USART_COM, tip.value >> 8);
+
+				while(!usart_is_tx_ready(USART_COM)) {
+					vTaskDelay(10 / portTICK_PERIOD_MS);
+				}
+				usart_write(USART_COM, eof);
+		
+	}
+}
+}
 /************************************************************************/
 /* main                                                                 */
 /************************************************************************/
@@ -261,9 +549,18 @@ int main(void) {
 	board_init();
 
 	configure_console();
+  
+  	xQueueADC = xQueueCreate(100, sizeof(adcData));
+        
+    if (xTaskCreate(task_adc, "ADC", TASK_ADC_STACK_SIZE, NULL,
+                    TASK_ADC_STACK_PRIORITY, NULL) != pdPASS) {
+        printf("Failed to create test ADC task\r\n");
+    }
 
-	/* Create task to make led blink */
-	xTaskCreate(task_bluetooth, "BLT", TASK_BLUETOOTH_STACK_SIZE, NULL,	TASK_BLUETOOTH_STACK_PRIORITY, NULL);
+	xTaskCreate(task_handshake, "Handshake", TASK_HANDSHAKE_STACK_SIZE, NULL,
+					TASK_HANDSHAKE_STACK_PRIORITY, &xTaskHandshakeHandle);
+
+	xQueueButton =  xQueueCreate(32, sizeof(pack));
 
 	/* Start the scheduler. */
 	vTaskStartScheduler();
